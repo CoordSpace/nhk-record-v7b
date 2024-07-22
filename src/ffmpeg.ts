@@ -493,7 +493,7 @@ const generateFilterChain = (
   return filters ? ['-filter_complex', filters] : [];
 };
 
-export const getFfmpegPostProcessArguments = (
+const getFfmpegPostProcessArguments = (
   inputPath: string,
   outputPath: string,
   start: number,

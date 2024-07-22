@@ -1,12 +1,44 @@
 import { expect, jest, test } from '@jest/globals';
 import { execute } from '../utils';
-import logger from '../logger';
-import { getFfmpegPostProcessArguments, postProcessRecording } from '../ffmpeg';
+import { postProcessRecording } from '../ffmpeg';
 
 jest.mock('../utils', () => {
     const stdout: Array<string> = [];
     const stderr: Array<string> = [];
-    const mockExecute = jest.fn<typeof execute>((command, args) => new Promise((resolve, reject) => ({ stdout: stdout, stderr: stderr })));
+    const mockExecute = jest.fn<typeof execute>(async (command, args) => {
+        if (command == 'ffprobe') {
+            const mockFfprobeObject = [
+                '{',
+                '   "format": {',
+                '       "filename": "Rockie and Her Friends - 4034 - 001.mp4",',
+                '       "nb_streams": 2,',
+                '       "nb_programs": 0,',
+                '       "format_name": "mov,mp4,m4a,3gp,3g2,mj2",',
+                '       "format_long_name": "QuickTime / MOV",',
+                '       "start_time": "0.017000",',
+                '       "duration": "618.709333",',
+                '       "size": "383262174",',
+                '       "bit_rate": "4955634",',
+                '       "probe_score": 100,',
+                '       "tags": {',
+                '           "major_brand": "isom",',
+                '           "minor_version": "512",',
+                '           "compatible_brands": "isomiso2avc1mp41",',
+                '           "date": "2024-04-06T03:40:00.000Z",',
+                '           "encoder": "Lavf58.50.100",',
+                '           "description": "Puppet action show for children. In a distant post-human future where surviving creatures have formed a community, new-breed dinosaur girl Rockie sets out on hilarious adventures with her schoolmates.",',
+                '           "show": "Rockie and Her Friends",',
+                '           "episode_id": "001",',
+                '           "network": "NHK World"',
+                '       }',
+                '   }',
+                '}'
+            ];
+            return Promise.resolve({ stdout: mockFfprobeObject, stderr: [] });
+        } else {
+            return Promise.resolve({ stdout: stdout, stderr: stderr });
+        }
+    });
 
     return {
         __esModule: true,
@@ -18,30 +50,28 @@ jest.mock('../utils', () => {
 jest.mock('../logger');
 
 describe('ffmpeg', () => {
-    describe('getFfmpegPostProcessArguments', () => {
-        it('should return the right ffmpeg parameters when no crop and no thumbnail is given', async () => {
-            const startMs = 124687;
-            const endMs = 367110;
-            const args = getFfmpegPostProcessArguments('inputPath.mp4', 'outputPath.mp4', startMs, endMs, [], false);
-            const argString = args.join(' ');
-            expect(argString).toMatch('-i inputPath.mp4');
-            expect(argString).toMatch(`-ss ${startMs / 1000}`);
-            expect(argString).toMatch(`-to ${endMs / 1000}`);
-            expect(argString).toMatch('-codec copy');
-            expect(argString).toMatch('-map 0:0');
-            expect(argString).toMatch('-map 0:1');
-            expect(argString).toMatch('-map_metadata 0');
-            expect(argString).toMatch('-f mp4');
-            expect(args[args.length - 1]).toEqual('outputPath.mp4');
-        });
-    });
-
     describe('postProcessRecording', () => {
         it('should run ffmpeg once with the right arguments when no crop and no thumbnail is given', async () => {
             const startMs = 124687;
             const endMs = 367110;
-            postProcessRecording('inputPath.mp4', 'outputPath.mp4', startMs, endMs, []);
-            expect(execute).toHaveBeenCalledTimes(1);
+            await postProcessRecording('inputPath.mp4', 'outputPath.mp4', startMs, endMs, []);
+
+            expect(execute).toHaveBeenCalledTimes(2);
+            expect(execute).toHaveBeenCalledWith(
+                'ffmpeg',
+                [
+                    '-y',
+                    '-i', 'inputPath.mp4',
+                    '-ss', '' + startMs / 1000,
+                    '-to', '' + endMs / 1000,
+                    '-codec', 'copy',
+                    '-map', '0:0',
+                    '-map', '0:1',
+                    '-map_metadata', '0',
+                    '-f', 'mp4',
+                    'outputPath.mp4'
+                ]
+            );
         });
     });
 });
