@@ -52,16 +52,18 @@ jest.mock('../logger');
 describe('ffmpeg', () => {
     describe('postProcessRecording', () => {
         it('should run ffmpeg once with the right arguments when no crop and no thumbnail is given', async () => {
+            const inputPath = 'inputPath.mp4';
+            const outputPath = 'outputPath.mp4';
             const startMs = 124687;
             const endMs = 367110;
-            await postProcessRecording('inputPath.mp4', 'outputPath.mp4', startMs, endMs, []);
+            await postProcessRecording(inputPath, outputPath, startMs, endMs, []);
 
             expect(execute).toHaveBeenCalledTimes(2);
             expect(execute).toHaveBeenCalledWith(
                 'ffmpeg',
                 [
                     '-y',
-                    '-i', 'inputPath.mp4',
+                    '-i', inputPath,
                     '-ss', '' + startMs / 1000,
                     '-to', '' + endMs / 1000,
                     '-codec', 'copy',
@@ -69,7 +71,7 @@ describe('ffmpeg', () => {
                     '-map', '0:1',
                     '-map_metadata', '0',
                     '-f', 'mp4',
-                    'outputPath.mp4'
+                    outputPath
                 ]
             );
         });
