@@ -493,7 +493,7 @@ const generateFilterChain = (
   return filters ? ['-filter_complex', filters] : [];
 };
 
-const getFfmpegPostProcessArguments = (
+export const getFfmpegPostProcessArguments = (
   inputPath: string,
   outputPath: string,
   start: number,
@@ -539,6 +539,40 @@ export const postProcessRecording = async (
   cropParameters: Array<CropParameters>
 ): Promise<void> => {
   const hasThumbnail = (await getStreamCount(inputPath)) > 2;
+  // @TODO: "lossless" cutting outside of keyframes
+  // basic idea is as follows:
+  // 1. ffprobe -v error -select_streams v:0 -skip_frame nokey -show_entries frame=pts_time -of csv=p=0 input.mp4
+  //    to find all keyframe time indices (or improved command below)
+  //    ffprobe -v quiet -select_streams v:0 -skip_frame nokey -show_entries frame=pts_time -read_intervals [start-5]%+10,[end-5]%+10 -of json input.mp4
+  //    ex. ffprobe -v error -select_streams v:0 -skip_frame nokey -show_entries frame=pts_time -read_intervals 139.311%+10,739.077%+10 '.\Rockie and Her Friends - 4034 - 016.raw' ([start] = 144.311ms, [end] = 744.077ms)
+  //    [next keyframe after start] = 146.146000ms
+  //    [last keyframe before end] = 742.742000ms
+  // 2. ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate input.mp4
+  //    to get video stream bitrate for later
+  //    ex. ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate '.\Rockie and Her Friends - 4034 - 016.raw'
+  //    [video bitrate] = 4590588
+  //    NOTE: could take the bitrate of the output from the "copy stream" step instead? in practice it doesn't seem to affect whether the video works or not so that's good at least
+  // 3. take original trim time indices (start/end), clip start-->next keyframe and last keyframe-->end
+  //    ffmpeg -i input.mp4 -ss [start] -t [next keyframe timestamp after start - start] -map '0:0' '-c:0' h264 '-b:0' [bitrate of original file?] -map '0:1' '-c:1' copy -ignore_unknown -f mp4 encode-1.mp4
+  //    ffmpeg -i input.mp4 -ss [last keyframe before end] -t [end - last keyframe before end] -map '0:0' '-c:0' h264 '-b:0' [bitrate of original file?] -map '0:1' '-c:1' copy -ignore_unknown -f mp4 encode-3.mp4
+  //    (hopefully we don't need to set a specific codec profile for this)
+  //    ex. ffmpeg -ss 144.311 -i '.\Rockie and Her Friends - 4034 - 016.raw' -ss 0 -t 1.835 -map '0:0' '-c:0' h264 '-b:0' 4590588 -map '0:1' '-c:1' copy -ignore_unknown -video_track_timescale 90000 -f mp4 encode-1.mp4
+  //    ffmpeg -ss 742.742 -i '.\Rockie and Her Friends - 4034 - 016.raw' -ss 0 -t 1.335 -map '0:0' '-c:0' h264 '-b:0' 4590588 -map '0:1' '-c:1' copy -ignore_unknown -video_track_timescale 90000 -f mp4 encode-3.mp4
+  // 4. copy stream between the above keyframes to new file
+  //    ffmpeg -i input.mp4 -ss [next keyframe timestamp after start] -t [last keyframe before end - next keyframe before start] -map '0:0' '-c:0' copy -map '0:1' '-c:1' copy -movflags +faststart -default_mode infer_no_subs -ignore_unknown -f mp4 copy-2.mp4
+  //    ex. ffmpeg -ss 146.146 -i '.\Rockie and Her Friends - 4034 - 016.raw' -ss 0 -t 596.596 -map '0:0' '-c:0' copy -map '0:1' '-c:1' copy -movflags +faststart -default_mode infer_no_subs -video_track_timescale 90000 -ignore_unknown -f mp4 copy-2.mp4
+  // 5. create concat demuxer instruction file (as input.txt? what filename, should it match the input.mp4 name?):
+  //    file 'encode-1.mp4'
+  //    file 'copy-2.mp4'
+  //    file 'encode-3.mp4'
+  // 6. concat all files
+  //    ffmpeg -f concat -i input.mp4 -c copy output.mp4
+  //    ex. type recut.txt | ffmpeg -hide_banner -f concat -safe 0 -protocol_whitelist 'file,pipe,fd' -i - -map '0:0' '-c:0' copy '-disposition:0' default -map '0:1' '-c:1' copy '-disposition:1' default -movflags '+faststart' -default_mode infer_no_subs -ignore_unknown -video_track_timescale 90000 -f mp4 'test-recut.mp4'
+  // running all this at the command line mostly works but the output.mp4 is garbled; this is probably due to codec mismatch? not sure how to re-encode
+  // the cap videos to be EXACTLY the same codec/parameters as the source file
+  // UPDATE 2024-07-20: IT WORKS OMG IT ACTUALLY WORKS thanks Lossless Cut for your "output last ffmpeg commands" feature!
+  // notes: you need video_track_timescale, otherwise the different pieces of the concatenated video will play back at different speeds?
+  // the value for video_track_timescale seems to be fixed for MPEG-TS streams at 90000
   const args = getFfmpegPostProcessArguments(
     inputPath,
     outputPath,

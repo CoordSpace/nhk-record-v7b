@@ -12,6 +12,8 @@ export enum FileType {
   IN_PROGRESS,
   METADATA,
   POST_PROCESSED,
+  PROCESSING_STARTCAP,
+  PROCESSING_ENDCAP,
   RAW,
   SUCCESSFUL,
   THUMBNAIL
@@ -32,10 +34,12 @@ const getSuffix = (suffixType: FileType, programme: Programme): string =>
       `.${sanitizeFilename(programme.startDate.toISOString())}.failed`,
     [FileType.IN_PROGRESS]: () => '.inprogress',
     [FileType.METADATA]: () => '.metadata',
+    [FileType.POST_PROCESSED]: () => '.postprocessed',
+    [FileType.PROCESSING_STARTCAP]: () => '.process_start',
+    [FileType.PROCESSING_ENDCAP]: () => '.process_end',
     [FileType.RAW]: () => '.raw',
     [FileType.SUCCESSFUL]: () => '.mp4',
-    [FileType.THUMBNAIL]: () => '.jpg',
-    [FileType.POST_PROCESSED]: () => '.postprocessed'
+    [FileType.THUMBNAIL]: () => '.jpg'
   }[suffixType](programme));
 
 export const makeSaveDirectory = async (): Promise<string> => {
@@ -69,6 +73,12 @@ export const getSavePath = (programme: Programme): string =>
 
 export const getInProgressPath = (programme: Programme): string =>
   `${getSavePath(programme)}${getSuffix(FileType.IN_PROGRESS, programme)}`;
+
+export const getProcessStartCapPath = (programme: Programme): string =>
+  `${getSavePath(programme)}${getSuffix(FileType.PROCESSING_STARTCAP, programme)}`;
+  
+export const getProcessEndCapPath = (programme: Programme): string =>
+  `${getSavePath(programme)}${getSuffix(FileType.PROCESSING_ENDCAP, programme)}`;
 
 export const getPostProcessedPath = (programme: Programme): string =>
   `${getSavePath(programme)}${getSuffix(FileType.POST_PROCESSED, programme)}`;
