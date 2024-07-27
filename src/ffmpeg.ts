@@ -129,6 +129,28 @@ const NEWS_BANNER_STRATEGY = {
 const getFfprobeArguments = (path: string): Array<string> =>
   [['-v', 'quiet'], ['-print_format', 'json'], '-show_format', path].flat();
 
+const getFfprobeKeyframeDetectArguments = (
+  inputPath: string,
+  start: number,
+  end: number
+): Array<string> => [
+  ['-v', 'quiet'],
+  ['-select_streams', 'v:0'],
+  ['-skip_frame', 'nokey'],
+  ['-show_entries', 'frame=pts_time'],
+  ['-read_intervals', `${start / 1000 - 5}%+10,${end / 1000 - 5}%+10`],
+  ['-print_format', 'json'],
+  inputPath
+].flat();
+
+const getFfprobeBitrateArguments = (path: string): Array<string> => [
+  ['-v', 'quiet'],
+  ['-select_streams', 'v:0'],
+  ['-show_entries', 'stream=bit_rate'],
+  ['-print_format', 'json'],
+  path
+].flat();
+  
 export const getFileDuration = async (path: string): Promise<number> => {
   const args = getFfprobeArguments(path);
 
@@ -531,11 +553,43 @@ const getFfmpegPostProcessArguments = (
     outputPath
   ].flat(2);
 
+export const getKeyframeBoundaries = async (
+  inputPath: string,
+  start: number,
+  end: number
+): Promise<Array<number>> => {
+  const args = getFfprobeKeyframeDetectArguments(
+    inputPath,
+    start,
+    end
+  );
+
+  logger.debug(`Invoking ffprobe with args: ${args.join(' ')}`);
+  const { stdout } = await execute('ffprobe', args);
+  const { frames: framesList } = JSON.parse(stdout.join(''));
+  const firstKeyframe = framesList.find((frame) => (frame.pts_time * 1000) >= start);
+  const lastKeyframe = framesList.findLast((frame) => (frame.pts_time * 1000) <= end);
+  return [firstKeyframe.pts_time * 1000, lastKeyframe.pts_time * 1000];
+}
+
+export const getBitrate = async (
+  inputPath: string
+): Promise<number> => {
+  const args = getFfprobeBitrateArguments(inputPath);
+  logger.debug(`Invoking ffprobe with args: ${args.join(' ')}`);
+  const { stdout } = await execute('ffprobe', args);
+  const { streams: [
+    { bit_rate: bitrate }
+  ]} = JSON.parse(stdout.join(''));
+  return bitrate;
+}
+
 export const postProcessRecording = async (
   inputPath: string,
   outputPath: string,
   start: number,
   end: number,
+  smartTrim: boolean,
   cropParameters: Array<CropParameters>
 ): Promise<void> => {
   const hasThumbnail = (await getStreamCount(inputPath)) > 2;
@@ -573,18 +627,27 @@ export const postProcessRecording = async (
   // UPDATE 2024-07-20: IT WORKS OMG IT ACTUALLY WORKS thanks Lossless Cut for your "output last ffmpeg commands" feature!
   // notes: you need video_track_timescale, otherwise the different pieces of the concatenated video will play back at different speeds?
   // the value for video_track_timescale seems to be fixed for MPEG-TS streams at 90000
-  const args = getFfmpegPostProcessArguments(
-    inputPath,
-    outputPath,
-    start,
-    end,
-    cropParameters,
-    hasThumbnail
-  );
-
-  logger.debug(`Invoking ffmpeg with args: ${args.join(' ')}`);
-  const ffmpegStartTime = process.hrtime.bigint();
-  await execute('ffmpeg', args);
-  const ffmpegDuration = process.hrtime.bigint() - ffmpegStartTime;
-  logger.info(`Done in ${ffmpegDuration / 1_000_000n} ms`);
+  if (smartTrim) {
+    const keyframeBoundaries = await getKeyframeBoundaries(
+      inputPath,
+      start,
+      end
+    );
+    const videoBitrate = await getBitrate(inputPath);
+  } else {
+    const args = getFfmpegPostProcessArguments(
+      inputPath,
+      outputPath,
+      start,
+      end,
+      cropParameters,
+      hasThumbnail
+    );
+  
+    logger.debug(`Invoking ffmpeg with args: ${args.join(' ')}`);
+    const ffmpegStartTime = process.hrtime.bigint();
+    await execute('ffmpeg', args);
+    const ffmpegDuration = process.hrtime.bigint() - ffmpegStartTime;
+    logger.info(`Done in ${ffmpegDuration / 1_000_000n} ms`);
+  }
 };

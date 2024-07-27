@@ -193,7 +193,7 @@ export const postProcess = async (path: string, duration: number, programme: Pro
 
     const cropParameters = config.crop ? await findCropParameters(path, duration) : [];
 
-    await postProcessRecording(path, postProcessedPath, Math.max(0, start), end, cropParameters);
+    await postProcessRecording(path, postProcessedPath, Math.max(0, start), end, config.smartTrim, cropParameters);
     const postProcessedDuration = await getFileDuration(postProcessedPath);
     logger.info(`Post-processed file is ${postProcessedDuration} ms`);
 
