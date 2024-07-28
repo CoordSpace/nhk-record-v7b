@@ -1,6 +1,7 @@
 import { expect, jest, test } from '@jest/globals';
 import { execute } from '../utils';
 import { getKeyframeBoundaries, postProcessRecording } from '../ffmpeg';
+import { Readable } from 'stream';
 
 const inputPathNoThumbnail = 'inputPath.mp4';
 const inputPathWithThumbnail = 'inputPathWithThumbnail.mp4';
@@ -284,15 +285,18 @@ describe('ffmpeg', () => {
             );
         });
 
+        // @TODO: are the assertions too brittle? how much do we actually care about the order of calls?
         it('should run ffmpeg once with the right arguments when smart cut is on, no crop is requested, and embedded thumbnail is given', async () => {
             const inputPath = inputPathWithThumbnail;
             const outputPath = 'outputPath.mp4';
-            const startMs = 139311;
-            const endMs = 739077;
+            const startMs = 144311;
+            const endMs = 744077;
+            const expectedStartKeyframeMs = 146146;
+            const expectedEndKeyframeMs = 742742;
             const smartTrim = true;
             await postProcessRecording(inputPath, outputPath, startMs, endMs, smartTrim, []);
 
-            // expect(execute).toHaveBeenCalledTimes(7);
+            expect(execute).toHaveBeenCalledTimes(7);
             expect(execute).toHaveBeenNthCalledWith(
                 1,
                 'ffprobe',
@@ -327,23 +331,72 @@ describe('ffmpeg', () => {
                     inputPath
                 ]
             );
-            expect(execute).toHaveBeenCalledWith(
+            expect(execute).toHaveBeenNthCalledWith(
+                4,
                 'ffmpeg',
                 [
-                    '-y',
+                    '-ss', `${expectedStartKeyframeMs / 1000}`,
                     '-i', inputPath,
-                    '-i', inputPath,
-                    '-ss', `${startMs / 1000}`,
-                    '-to', `${endMs / 1000}`,
-                    '-codec', 'copy',
-                    '-filter_complex', `[1:2]setpts=PTS+${startMs / 1000}/TB[tn]`,
-                    '-map', '0:0',
-                    '-map', '0:1',
-                    '-map', '[tn]', '-codec:v:1', 'mjpeg', '-disposition:v:1', 'attached_pic',
-                    '-map_metadata', '0',
+                    '-ss', '0',
+                    '-t', `${(expectedEndKeyframeMs - expectedStartKeyframeMs) / 1000}`,
+                    '-map', '0:0', '-c:0', 'copy',
+                    '-map', '0:1', '-c:1', 'copy',
+                    '-video_track_timescale', '90000',
+                    '-ignore_unknown',
                     '-f', 'mp4',
-                    outputPath
+                    `${inputPath}.smarttrim.mid`
                 ]
+            );
+            expect(execute).toHaveBeenNthCalledWith(
+                5,
+                'ffmpeg',
+                [
+                    '-ss', `${startMs / 1000}`,
+                    '-i', inputPath,
+                    '-ss', '0',
+                    '-t', `${(expectedStartKeyframeMs - startMs) / 1000}`,
+                    '-map', '0:0', '-c:0', 'libx264', '-b:0', '4590588',
+                    '-map', '0:1', '-c:1', 'copy',
+                    '-video_track_timescale', '90000',
+                    '-ignore_unknown',
+                    '-f', 'mp4',
+                    `${inputPath}.smarttrim.start`
+                ]
+            );
+            expect(execute).toHaveBeenNthCalledWith(
+                6,
+                'ffmpeg',
+                [
+                    '-ss', `${expectedEndKeyframeMs / 1000}`,
+                    '-i', inputPath,
+                    '-ss', '0',
+                    '-t', `${(endMs - expectedEndKeyframeMs) / 1000}`,
+                    '-map', '0:0', '-c:0', 'libx264', '-b:0', '4590588',
+                    '-map', '0:1', '-c:1', 'copy',
+                    '-video_track_timescale', '90000',
+                    '-ignore_unknown',
+                    '-f', 'mp4',
+                    `${inputPath}.smarttrim.end`
+                ]
+            );
+            expect(execute).toHaveBeenLastCalledWith(
+                'ffmpeg',
+                [
+                    '-hide_banner',
+                    '-f', 'concat',
+                    '-safe', '0',
+                    '-protocol_whitelist', 'pipe,file,fd',
+                    '-i', '-',
+                    '-map', '0:0', '-c:0', 'copy', '-disposition:0', 'default',
+                    '-map', '0:1', '-c:1', 'copy', '-disposition:1', 'default',
+                    '-movflags', '+faststart',
+                    '-default_mode', 'infer_no_subs',
+                    '-video_track_timescale', '90000',
+                    '-ignore_unknown',
+                    '-f', 'mp4',
+                    `${outputPath}.smarttrim.FINAL.mp4`
+                ],
+                expect.any(Readable)
             );
         });
     });

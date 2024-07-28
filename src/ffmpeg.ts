@@ -584,6 +584,158 @@ export const getBitrate = async (
   return bitrate;
 }
 
+export const renderStartCap = async (
+  inputPath: string,
+  start: number,
+  end: number,
+  bitrate: number
+) => {
+  const tempFilename = `${inputPath}.smarttrim.start`;
+  logger.info(`Smart trim: rendering start cap for ${inputPath}`);
+  await renderFragment(inputPath, tempFilename, start, end, bitrate);
+  return tempFilename;
+}
+
+export const renderEndCap = async (
+  inputPath: string,
+  start: number,
+  end: number,
+  bitrate: number
+) => {
+  const tempFilename = `${inputPath}.smarttrim.end`;
+  logger.info(`Smart trim: rendering end cap for ${inputPath}`);
+  await renderFragment(inputPath, tempFilename, start, end, bitrate);
+  return tempFilename;
+}
+
+export const renderFragment = async (
+  inputPath: string,
+  outputPath: string,
+  start: number,
+  end: number,
+  bitrate: number
+) => {
+  const args = getFfmpegRenderCapArguments(
+    inputPath,
+    outputPath,
+    start,
+    end,
+    bitrate
+  );
+
+  logger.debug(`Invoking ffmpeg with args: ${args.join(' ')}`);
+  const ffmpegStartTime = process.hrtime.bigint();
+  await execute('ffmpeg', args);
+  const ffmpegDuration = process.hrtime.bigint() - ffmpegStartTime;
+  logger.info(`Rendering ${outputPath} done in ${ffmpegDuration / 1_000_000n} ms`);
+}
+
+const getFfmpegRenderCapArguments = (
+  inputPath: string,
+  outputPath: string,
+  start: number,
+  end: number,
+  bitrate: number
+): Array<string> => [
+  ['-ss', `${start / 1000}`],
+  ['-i', inputPath],
+  ['-ss', '0'],
+  ['-t', `${(end - start) / 1000}`],
+  ['-map', '0:0', '-c:0', 'libx264', '-b:0', `${bitrate}`],
+  ['-map', '0:1', '-c:1', 'copy'],
+  ['-video_track_timescale', '90000'],
+  ['-ignore_unknown'],
+  ['-f', 'mp4'],
+  outputPath
+].flat();
+
+export const copyMidSection = async (
+  inputPath: string,
+  start: number,
+  end: number,
+) => {
+  const tempFilename = `${inputPath}.smarttrim.mid`;
+  logger.info(`Smart trim: copying middle section for ${inputPath}`);
+  await copyFragment(inputPath, tempFilename, start, end);
+  return tempFilename;
+}
+
+export const copyFragment = async (
+  inputPath: string,
+  outputPath: string,
+  start: number,
+  end: number,
+) => {
+  const args = getFfmpegCopyFragmentArguments(
+    inputPath,
+    outputPath,
+    start,
+    end,
+  );
+
+  logger.debug(`Invoking ffmpeg with args: ${args.join(' ')}`);
+  const ffmpegStartTime = process.hrtime.bigint();
+  await execute('ffmpeg', args);
+  const ffmpegDuration = process.hrtime.bigint() - ffmpegStartTime;
+  logger.info(`Rendering ${outputPath} done in ${ffmpegDuration / 1_000_000n} ms`);
+}
+
+const getFfmpegCopyFragmentArguments = (
+  inputPath: string,
+  outputPath: string,
+  start: number,
+  end: number,
+): Array<string> => [
+  ['-ss', `${start / 1000}`],
+  ['-i', inputPath],
+  ['-ss', '0'],
+  ['-t', `${(end - start) / 1000}`],
+  ['-map', '0:0', '-c:0', 'copy'],
+  ['-map', '0:1', '-c:1', 'copy'],
+  ['-video_track_timescale', '90000'],
+  ['-ignore_unknown'],
+  ['-f', 'mp4'],
+  outputPath
+].flat();
+
+const getFfmpegConcatenationArguments = (outputPath: string): Array<string> => [
+  ['-hide_banner'],
+  ['-f', 'concat'],
+  ['-safe', '0'],
+  ['-protocol_whitelist', 'pipe,file,fd'],
+  ['-i', '-'],
+  ['-map', '0:0', '-c:0', 'copy', '-disposition:0', 'default'],
+  ['-map', '0:1', '-c:1', 'copy', '-disposition:1', 'default'],
+  ['-movflags', '+faststart'],
+  ['-default_mode', 'infer_no_subs'],
+  ['-video_track_timescale', '90000'],
+  ['-ignore_unknown'],
+  ['-f', 'mp4'],
+  outputPath
+].flat();
+
+export const concatSmartTrimFiles = async (
+  outputPath: string, 
+  startPath: string, 
+  midPath: string, 
+  endPath: string
+) => {
+  const instructionStream = new Readable();
+  const instructions = [
+    `file '${startPath}'`,
+    `file '${midPath}'`,
+    `file '${endPath}'`,
+  ];
+  instructions.forEach(line => {
+    instructionStream.push(line);
+    instructionStream.push("\n");
+  });
+  instructionStream.push(null);
+
+  const args = getFfmpegConcatenationArguments(outputPath);
+  await execute('ffmpeg', args, instructionStream);
+}
+
 export const postProcessRecording = async (
   inputPath: string,
   outputPath: string,
@@ -627,13 +779,22 @@ export const postProcessRecording = async (
   // UPDATE 2024-07-20: IT WORKS OMG IT ACTUALLY WORKS thanks Lossless Cut for your "output last ffmpeg commands" feature!
   // notes: you need video_track_timescale, otherwise the different pieces of the concatenated video will play back at different speeds?
   // the value for video_track_timescale seems to be fixed for MPEG-TS streams at 90000
-  if (smartTrim) {
-    const keyframeBoundaries = await getKeyframeBoundaries(
-      inputPath,
-      start,
-      end
-    );
+
+  // smart trimming: enable only if requested in the config AND there are no crop parameters
+  // if there are crop parameters we're just going to re-render the whole thing anyways so might as well skip smart-trim
+  if (smartTrim && cropParameters.length == 0) {
+    logger.debug(`Using smart trim for ${inputPath}`);
+    const smartTrimStartTime = process.hrtime.bigint();
+    const keyframeBoundaries = await getKeyframeBoundaries(inputPath, start, end);
     const videoBitrate = await getBitrate(inputPath);
+    const midPath = await copyMidSection(inputPath, keyframeBoundaries[0], keyframeBoundaries[1]);
+    const startCapPath = await renderStartCap(inputPath, start, keyframeBoundaries[0], videoBitrate);
+    const endCapPath = await renderEndCap(inputPath, keyframeBoundaries[1], end, videoBitrate);
+    await concatSmartTrimFiles(`${outputPath}.smarttrim.FINAL.mp4`, startCapPath, midPath, endCapPath);
+    const smartTrimDuration = process.hrtime.bigint() - smartTrimStartTime;
+    logger.info(`Done in ${smartTrimDuration / 1_000_000n} ms`);
+    // @TODO: clean up smart trim files
+    // @TODO: attach thumbnail and metadata
   } else {
     const args = getFfmpegPostProcessArguments(
       inputPath,
