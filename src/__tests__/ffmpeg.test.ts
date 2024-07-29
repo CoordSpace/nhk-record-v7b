@@ -297,6 +297,7 @@ describe('ffmpeg', () => {
             await postProcessRecording(inputPath, outputPath, startMs, endMs, smartTrim, []);
 
             expect(execute).toHaveBeenCalledTimes(8);
+            // getStreamCount -- check for embedded thumbnail
             expect(execute).toHaveBeenNthCalledWith(
                 1,
                 'ffprobe',
@@ -307,6 +308,7 @@ describe('ffmpeg', () => {
                     inputPath
                 ]
             );
+            // getKeyframeBoundaries -- find first/last keyframe for given section of raw video
             expect(execute).toHaveBeenNthCalledWith(
                 2,
                 'ffprobe',
@@ -320,6 +322,7 @@ describe('ffmpeg', () => {
                     inputPath
                 ]
             );
+            // getBitrate -- get overall video bitrate for later rendering jobs
             expect(execute).toHaveBeenNthCalledWith(
                 3,
                 'ffprobe',
@@ -331,6 +334,7 @@ describe('ffmpeg', () => {
                     inputPath
                 ]
             );
+            // copyFragment -- direct stream copy the portion between the first/last keyframes of the requested video segment
             expect(execute).toHaveBeenNthCalledWith(
                 4,
                 'ffmpeg',
@@ -347,6 +351,7 @@ describe('ffmpeg', () => {
                     `${inputPath}.smarttrim.mid`
                 ]
             );
+            // renderStartCap -- re-render the portion between the start and the first keyframe
             expect(execute).toHaveBeenNthCalledWith(
                 5,
                 'ffmpeg',
@@ -363,6 +368,7 @@ describe('ffmpeg', () => {
                     `${inputPath}.smarttrim.start`
                 ]
             );
+            // renderEndCap -- re-render the portion between the last keyframe and the end
             expect(execute).toHaveBeenNthCalledWith(
                 6,
                 'ffmpeg',
@@ -379,6 +385,7 @@ describe('ffmpeg', () => {
                     `${inputPath}.smarttrim.end`
                 ]
             );
+            // concatSmartTrimFiles -- join start/middle/end video clips to complete the smart trim
             expect(execute).toHaveBeenCalledWith(
                 'ffmpeg',
                 [
@@ -398,6 +405,7 @@ describe('ffmpeg', () => {
                 ],
                 expect.any(Readable)
             );
+            // restoreSmartTrimMetadata -- grab metadata/thumbnail from original video and re-attach to trimmed video
             expect(execute).toHaveBeenLastCalledWith(
                 'ffmpeg',
                 [
