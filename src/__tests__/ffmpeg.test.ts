@@ -296,7 +296,7 @@ describe('ffmpeg', () => {
             const smartTrim = true;
             await postProcessRecording(inputPath, outputPath, startMs, endMs, smartTrim, []);
 
-            expect(execute).toHaveBeenCalledTimes(7);
+            expect(execute).toHaveBeenCalledTimes(8);
             expect(execute).toHaveBeenNthCalledWith(
                 1,
                 'ffprobe',
@@ -379,7 +379,7 @@ describe('ffmpeg', () => {
                     `${inputPath}.smarttrim.end`
                 ]
             );
-            expect(execute).toHaveBeenLastCalledWith(
+            expect(execute).toHaveBeenCalledWith(
                 'ffmpeg',
                 [
                     '-hide_banner',
@@ -397,6 +397,18 @@ describe('ffmpeg', () => {
                     `${outputPath}.smarttrim.FINAL.mp4`
                 ],
                 expect.any(Readable)
+            );
+            expect(execute).toHaveBeenLastCalledWith(
+                'ffmpeg',
+                [
+                    '-i', inputPath,
+                    '-i', `${outputPath}.smarttrim.FINAL.mp4`,
+                    '-map', '0:2', '-c', 'copy',
+                    '-map', '1', '-c', 'copy',
+                    '-map_metadata', '0',
+                    '-f', 'mp4',
+                    outputPath
+                ]
             );
         });
     });
