@@ -209,6 +209,16 @@ export const postProcess = async (path: string, duration: number, programme: Pro
     } else {
       await remove(path);
     }
+    
+    // remove smart trim artifacts
+    // @TODO: actually check for smart trim artifacts before attempting to delete them
+    // @TODO: update metadata JSON file to include smart trim status
+    if (config.smartTrim) {
+      await remove(`${path}.smarttrim.start`);
+      await remove(`${path}.smarttrim.mid`);
+      await remove(`${path}.smarttrim.end`);
+      await remove(`${postProcessedPath}.smarttrim.FINAL.mp4`);
+    }
 
     result.trimmed = start > 0;
     result.cropped = cropParameters.length > 0;
