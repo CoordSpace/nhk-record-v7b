@@ -584,7 +584,7 @@ export const getBitrate = async (
   return bitrate;
 }
 
-export const renderStartCap = async (
+const renderStartCap = async (
   inputPath: string,
   start: number,
   end: number,
@@ -596,7 +596,7 @@ export const renderStartCap = async (
   return tempFilename;
 }
 
-export const renderEndCap = async (
+const renderEndCap = async (
   inputPath: string,
   start: number,
   end: number,
@@ -608,7 +608,7 @@ export const renderEndCap = async (
   return tempFilename;
 }
 
-export const renderFragment = async (
+const renderFragment = async (
   inputPath: string,
   outputPath: string,
   start: number,
@@ -649,7 +649,7 @@ const getFfmpegRenderCapArguments = (
   outputPath
 ].flat();
 
-export const copyMidSection = async (
+const copyMidSection = async (
   inputPath: string,
   start: number,
   end: number,
@@ -660,7 +660,7 @@ export const copyMidSection = async (
   return tempFilename;
 }
 
-export const copyFragment = async (
+const copyFragment = async (
   inputPath: string,
   outputPath: string,
   start: number,
@@ -714,7 +714,7 @@ const getFfmpegConcatenationArguments = (outputPath: string): Array<string> => [
   outputPath
 ].flat();
 
-export const concatSmartTrimFiles = async (
+const concatSmartTrimFiles = async (
   outputPath: string, 
   startPath: string, 
   midPath: string, 
@@ -735,6 +735,43 @@ export const concatSmartTrimFiles = async (
   const args = getFfmpegConcatenationArguments(outputPath);
   await execute('ffmpeg', args, instructionStream);
 }
+
+const restoreSmartTrimMetadata = async (
+  originalVideoPath: string,
+  smartTrimVideoPath: string,
+  outputPath: string,
+  hasThumbnail: boolean
+) => {
+  const args = getFfmpegCopyMetadataArguments(
+    originalVideoPath,
+    smartTrimVideoPath,
+    outputPath,
+    hasThumbnail
+  );
+
+  logger.debug(`Invoking ffmpeg with args: ${args.join(' ')}`);
+  const ffmpegStartTime = process.hrtime.bigint();
+  await execute('ffmpeg', args);
+  const ffmpegDuration = process.hrtime.bigint() - ffmpegStartTime;
+  logger.info(`Copying metadata to ${outputPath} done in ${ffmpegDuration / 1_000_000n} ms`);
+}
+
+const getFfmpegCopyMetadataArguments = (
+  originalVideoPath: string,
+  smartTrimVideoPath: string,
+  outputPath: string,
+  hasThumbnail: boolean
+): Array<string> => [
+  ['-i', originalVideoPath],
+  ['-i', smartTrimVideoPath],
+  hasThumbnail ? [
+    ['-map', '0:2', '-c', 'copy'],
+  ] : [],
+  ['-map', '1', '-c', 'copy'],
+  ['-map_metadata', '0'],
+  ['-f', 'mp4'],
+  outputPath
+].flat(2);
 
 export const postProcessRecording = async (
   inputPath: string,
@@ -784,17 +821,17 @@ export const postProcessRecording = async (
   // if there are crop parameters we're just going to re-render the whole thing anyways so might as well skip smart-trim
   if (smartTrim && cropParameters.length == 0) {
     logger.debug(`Using smart trim for ${inputPath}`);
+    const temporaryPath = `${outputPath}.smarttrim.FINAL.mp4`;
     const smartTrimStartTime = process.hrtime.bigint();
     const keyframeBoundaries = await getKeyframeBoundaries(inputPath, start, end);
     const videoBitrate = await getBitrate(inputPath);
     const midPath = await copyMidSection(inputPath, keyframeBoundaries[0], keyframeBoundaries[1]);
     const startCapPath = await renderStartCap(inputPath, start, keyframeBoundaries[0], videoBitrate);
     const endCapPath = await renderEndCap(inputPath, keyframeBoundaries[1], end, videoBitrate);
-    await concatSmartTrimFiles(`${outputPath}.smarttrim.FINAL.mp4`, startCapPath, midPath, endCapPath);
+    await concatSmartTrimFiles(temporaryPath, startCapPath, midPath, endCapPath);
+    await restoreSmartTrimMetadata(inputPath, temporaryPath, outputPath, hasThumbnail);
     const smartTrimDuration = process.hrtime.bigint() - smartTrimStartTime;
-    logger.info(`Done in ${smartTrimDuration / 1_000_000n} ms`);
-    // @TODO: clean up smart trim files
-    // @TODO: attach thumbnail and metadata
+    logger.info(`Smart trim done in ${smartTrimDuration / 1_000_000n} ms`);
   } else {
     const args = getFfmpegPostProcessArguments(
       inputPath,
