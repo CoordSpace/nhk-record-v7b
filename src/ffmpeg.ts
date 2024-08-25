@@ -595,6 +595,7 @@ const renderStartCap = async (
   bitrate: number
 ): Promise<string|null> => {
   if (end - start == 0) {
+    logger.debug(`Smart trim: skipping start cap for ${inputPath} (don't render zero-length clips)`)
     return null;
   }
   const tempFilename = `${inputPath}${SMARTTRIM_FILE_SUFFIX_START}`;
@@ -610,6 +611,7 @@ const renderEndCap = async (
   bitrate: number
 ): Promise<string|null> => {
   if (end - start == 0) {
+    logger.debug(`Smart trim: skipping end cap for ${inputPath} (don't render zero-length clips)`)
     return null;
   }
   const tempFilename = `${inputPath}${SMARTTRIM_FILE_SUFFIX_END}`;
@@ -740,6 +742,7 @@ const concatSmartTrimFiles = async (
   if (endPath) {
     instructions.push(`file '${endPath}'`);
   }
+  logger.debug(`Smart trim: concatenating ${instructions.length} smart-trim artifacts to ${outputPath}`);
   instructions.forEach(line => {
     instructionStream.push(line);
     instructionStream.push("\n");
