@@ -438,14 +438,13 @@ describe('ffmpeg', () => {
             );
         });
 
-        it('should only clip the beginning of the episode to the first keyframe if the episode does not start on a keyframe', async () => {
+        it('should not re-render the beginning of the episode to the first keyframe if the episode starts on a keyframe', async () => {
             const inputPath = inputPathWithThumbnail;
             const outputPath = 'outputPath.mp4';
             const startMs = 146146;
             const endMs = 744077;
             const expectedStartKeyframeMs = 146146;
             const expectedEndKeyframeMs = 742742;
-            const expectedSTStartFile = `${inputPath}.smarttrim.start`;
             const expectedSTMidFile = `${inputPath}.smarttrim.mid`;
             const expectedSTEndFile = `${inputPath}.smarttrim.end`;
             const expectedConcatPlan = new Readable();
@@ -462,7 +461,7 @@ describe('ffmpeg', () => {
             const smartTrim = true;
             await postProcessRecording(inputPath, outputPath, startMs, endMs, smartTrim, []);
 
-            expect(execute).toHaveBeenCalledTimes(8);
+            expect(execute).toHaveBeenCalledTimes(7);
             // getStreamCount -- check for embedded thumbnail
             expect(execute).toHaveBeenNthCalledWith(
                 1,
@@ -535,6 +534,138 @@ describe('ffmpeg', () => {
                     expectedSTEndFile
                 ]
             );
+            // concatSmartTrimFiles -- join middle/end video clips to complete the smart trim
+            expect(execute).toHaveBeenCalledWith(
+                'ffmpeg',
+                [
+                    '-hide_banner',
+                    '-f', 'concat',
+                    '-safe', '0',
+                    '-protocol_whitelist', 'pipe,file,fd',
+                    '-i', '-',
+                    '-map', '0:0', '-c:0', 'copy', '-disposition:0', 'default',
+                    '-map', '0:1', '-c:1', 'copy', '-disposition:1', 'default',
+                    '-movflags', '+faststart',
+                    '-default_mode', 'infer_no_subs',
+                    '-video_track_timescale', '90000',
+                    '-ignore_unknown',
+                    '-f', 'mp4',
+                    `${outputPath}.smarttrim.FINAL.mp4`
+                ],
+                expectedConcatPlan
+            );
+            // restoreSmartTrimMetadata -- grab metadata/thumbnail from original video and re-attach to trimmed video
+            expect(execute).toHaveBeenLastCalledWith(
+                'ffmpeg',
+                [
+                    '-i', inputPath,
+                    '-i', `${outputPath}.smarttrim.FINAL.mp4`,
+                    '-map', '0:2', '-c', 'copy',
+                    '-map', '1', '-c', 'copy',
+                    '-map_metadata', '0',
+                    '-f', 'mp4',
+                    outputPath
+                ]
+            );
+        });
+
+        // @TODO: think about parameterizing all these smart-trim tests
+        it('should not re-render from the last keyframe to the end of the episode if the episode ends on a keyframe', async () => {
+            const inputPath = inputPathWithThumbnail;
+            const outputPath = 'outputPath.mp4';
+            const startMs = 144311;
+            const endMs = 742742;
+            const expectedStartKeyframeMs = 146146;
+            const expectedEndKeyframeMs = 742742;
+            const expectedSTStartFile = `${inputPath}.smarttrim.start`;
+            const expectedSTMidFile = `${inputPath}.smarttrim.mid`;
+            const expectedConcatPlan = new Readable();
+            const instructions = [
+                `file '${expectedSTStartFile}'`,
+                `file '${expectedSTMidFile}'`,
+            ];
+            instructions.forEach(line => {
+                expectedConcatPlan.push(line);
+                expectedConcatPlan.push("\n");
+            });
+            expectedConcatPlan.push(null);
+            
+            const smartTrim = true;
+            await postProcessRecording(inputPath, outputPath, startMs, endMs, smartTrim, []);
+
+            expect(execute).toHaveBeenCalledTimes(7);
+            // getStreamCount -- check for embedded thumbnail
+            expect(execute).toHaveBeenNthCalledWith(
+                1,
+                'ffprobe',
+                [
+                    '-v', 'quiet',
+                    '-print_format', 'json',
+                    '-show_format',
+                    inputPath
+                ]
+            );
+            // getKeyframeBoundaries -- find first/last keyframe for given section of raw video
+            expect(execute).toHaveBeenNthCalledWith(
+                2,
+                'ffprobe',
+                [
+                    '-v', 'quiet',
+                    '-select_streams', 'v:0',
+                    '-skip_frame', 'nokey',
+                    '-show_entries', 'frame=pts_time',
+                    '-read_intervals', `${(startMs - 5000) / 1000}%+10,${(endMs - 5000) / 1000}%+10`,
+                    '-print_format', 'json',
+                    inputPath
+                ]
+            );
+            // getBitrate -- get overall video bitrate for later rendering jobs
+            expect(execute).toHaveBeenNthCalledWith(
+                3,
+                'ffprobe',
+                [
+                    '-v', 'quiet',
+                    '-select_streams', 'v:0',
+                    '-show_entries', 'stream=bit_rate',
+                    '-print_format', 'json',
+                    inputPath
+                ]
+            );
+            // copyFragment -- direct stream copy the portion between the first/last keyframes of the requested video segment
+            expect(execute).toHaveBeenNthCalledWith(
+                4,
+                'ffmpeg',
+                [
+                    '-ss', `${expectedStartKeyframeMs / 1000}`,
+                    '-i', inputPath,
+                    '-ss', '0',
+                    '-t', `${(expectedEndKeyframeMs - expectedStartKeyframeMs) / 1000}`,
+                    '-map', '0:0', '-c:0', 'copy',
+                    '-map', '0:1', '-c:1', 'copy',
+                    '-video_track_timescale', '90000',
+                    '-ignore_unknown',
+                    '-f', 'mp4',
+                    expectedSTMidFile
+                ]
+            );
+            // renderStartCap -- re-render the portion between the start and the first keyframe
+            expect(execute).toHaveBeenNthCalledWith(
+                5,
+                'ffmpeg',
+                [
+                    '-ss', `${startMs / 1000}`,
+                    '-i', inputPath,
+                    '-ss', '0',
+                    '-t', `${(expectedStartKeyframeMs - startMs) / 1000}`,
+                    '-map', '0:0', '-c:0', 'libx264', '-b:0', '4590588',
+                    '-map', '0:1', '-c:1', 'copy',
+                    '-video_track_timescale', '90000',
+                    '-ignore_unknown',
+                    '-f', 'mp4',
+                    expectedSTStartFile
+                ]
+            );
+            // SKIP renderEndCap -- re-render the portion between the last keyframe and the end
             // concatSmartTrimFiles -- join middle/end video clips to complete the smart trim
             expect(execute).toHaveBeenCalledWith(
                 'ffmpeg',

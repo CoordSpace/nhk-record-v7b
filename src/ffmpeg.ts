@@ -593,7 +593,10 @@ const renderStartCap = async (
   start: number,
   end: number,
   bitrate: number
-) => {
+): Promise<string|null> => {
+  if (end - start == 0) {
+    return null;
+  }
   const tempFilename = `${inputPath}${SMARTTRIM_FILE_SUFFIX_START}`;
   logger.info(`Smart trim: rendering start cap for ${inputPath}`);
   await renderFragment(inputPath, tempFilename, start, end, bitrate);
@@ -605,7 +608,10 @@ const renderEndCap = async (
   start: number,
   end: number,
   bitrate: number
-) => {
+): Promise<string|null> => {
+  if (end - start == 0) {
+    return null;
+  }
   const tempFilename = `${inputPath}${SMARTTRIM_FILE_SUFFIX_END}`;
   logger.info(`Smart trim: rendering end cap for ${inputPath}`);
   await renderFragment(inputPath, tempFilename, start, end, bitrate);
@@ -720,16 +726,20 @@ const getFfmpegConcatenationArguments = (outputPath: string): Array<string> => [
 
 const concatSmartTrimFiles = async (
   outputPath: string, 
-  startPath: string, 
+  startPath: string|null, 
   midPath: string, 
-  endPath: string
+  endPath: string|null
 ) => {
   const instructionStream = new Readable();
   const instructions = [
-    `file '${startPath}'`,
     `file '${midPath}'`,
-    `file '${endPath}'`,
   ];
+  if (startPath) {
+    instructions.unshift(`file '${startPath}'`);
+  }
+  if (endPath) {
+    instructions.push(`file '${endPath}'`);
+  }
   instructions.forEach(line => {
     instructionStream.push(line);
     instructionStream.push("\n");
@@ -829,35 +839,6 @@ export const postProcessRecording = async (
     const smartTrimStartTime = process.hrtime.bigint();
     const keyframeBoundaries = await getKeyframeBoundaries(inputPath, start, end);
     const videoBitrate = await getBitrate(inputPath);
-    // @TODO: check the keyframe boundaries; if one of the caps will basically be zero-length, don't bother
-    // check the Time and Tide episode Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU— in /debugging
-    // it causes errors when trying to concat the files
-    /*
-    [2024-08-03T04:44:13.181Z] [debug] 	Invoking ffprobe with args: -v quiet -print_format json -show_format \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress
-[2024-08-03T04:44:13.418Z] [debug] 	Using smart trim for \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress
-[2024-08-03T04:44:13.419Z] [debug] 	Invoking ffprobe with args: -v quiet -select_streams v:0 -skip_frame nokey -show_entries frame=pts_time -read_intervals 53.058%+10,1732.803%+10 -print_format json \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress
-[2024-08-03T04:44:13.748Z] [debug] 	Invoking ffprobe with args: -v quiet -select_streams v:0 -show_entries stream=bit_rate -print_format json \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress
-[2024-08-03T04:44:13.942Z] [info] 	Smart trim: copying middle section for \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress
-[2024-08-03T04:44:13.942Z] [debug] 	Invoking ffmpeg with args: -ss 58.058 -i \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress -ss 0 -t 1679.678 -map 0:0 -c:0 copy -map 0:1 -c:1 copy -video_track_timescale 90000 -ignore_unknown -f mp4 \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress.smarttrim.mid
-[2024-08-03T04:44:14.008Z] [info] 	Smart trim: rendering start cap for \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress
-[2024-08-03T04:44:14.008Z] [debug] 	Invoking ffmpeg with args: -ss 58.058 -i \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress -ss 0 -t 0 -map 0:0 -c:0 libx264 -b:0 4312128 -map 0:1 -c:1 copy -video_track_timescale 90000 -ignore_unknown -f mp4 \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress.smarttrim.start
-[2024-08-03T04:44:14.077Z] [info] 	Smart trim: rendering end cap for \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress
-[2024-08-03T04:44:14.077Z] [debug] 	Invoking ffmpeg with args: -ss 1737.736 -i \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress -ss 0 -t 0.067 -map 0:0 -c:0 libx264 -b:0 4312128 -map 0:1 -c:1 copy -video_track_timescale 90000 -ignore_unknown -f mp4 \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress.smarttrim.end
-[2024-08-03T04:44:14.395Z] [info] 	Rendering \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress.smarttrim.start done in 386 ms
-[2024-08-03T04:44:14.885Z] [info] 	Rendering \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress.smarttrim.end done in 807 ms
-[2024-08-03T04:44:20.712Z] [info] 	Rendering \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress.smarttrim.mid done in 6769 ms
-[2024-08-03T04:44:20.841Z] [error] 	Non-zero exit code: 1 
-{
-  "name": "ExecError",
-  "stdout": [],
-  "stderr": [
-    "Input #0, concat, from 'pipe:':",
-    "  Duration: N/A, bitrate: N/A",
-    "Stream map '0:0' matches no streams.",
-    "To ignore this, add a trailing '?' to the map."
-  ]
-}
-    */
     const [ midPath, startCapPath, endCapPath ] = await Promise.all([
       copyMidSection(inputPath, keyframeBoundaries[0], keyframeBoundaries[1]),
       renderStartCap(inputPath, start, keyframeBoundaries[0], videoBitrate),
