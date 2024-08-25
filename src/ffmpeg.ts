@@ -126,6 +126,10 @@ const NEWS_BANNER_STRATEGY = {
   minFrames: 120
 } as FrameSearchStrategy;
 
+const SMARTTRIM_FILE_SUFFIX_START = '.smarttrim.start';
+const SMARTTRIM_FILE_SUFFIX_MID = '.smarttrim.mid';
+const SMARTTRIM_FILE_SUFFIX_END = '.smarttrim.end';
+
 const getFfprobeArguments = (path: string): Array<string> =>
   [['-v', 'quiet'], ['-print_format', 'json'], '-show_format', path].flat();
 
@@ -590,7 +594,7 @@ const renderStartCap = async (
   end: number,
   bitrate: number
 ) => {
-  const tempFilename = `${inputPath}.smarttrim.start`;
+  const tempFilename = `${inputPath}${SMARTTRIM_FILE_SUFFIX_START}`;
   logger.info(`Smart trim: rendering start cap for ${inputPath}`);
   await renderFragment(inputPath, tempFilename, start, end, bitrate);
   return tempFilename;
@@ -602,7 +606,7 @@ const renderEndCap = async (
   end: number,
   bitrate: number
 ) => {
-  const tempFilename = `${inputPath}.smarttrim.end`;
+  const tempFilename = `${inputPath}${SMARTTRIM_FILE_SUFFIX_END}`;
   logger.info(`Smart trim: rendering end cap for ${inputPath}`);
   await renderFragment(inputPath, tempFilename, start, end, bitrate);
   return tempFilename;
@@ -654,7 +658,7 @@ const copyMidSection = async (
   start: number,
   end: number,
 ) => {
-  const tempFilename = `${inputPath}.smarttrim.mid`;
+  const tempFilename = `${inputPath}${SMARTTRIM_FILE_SUFFIX_MID}`;
   logger.info(`Smart trim: copying middle section for ${inputPath}`);
   await copyFragment(inputPath, tempFilename, start, end);
   return tempFilename;
@@ -825,9 +829,40 @@ export const postProcessRecording = async (
     const smartTrimStartTime = process.hrtime.bigint();
     const keyframeBoundaries = await getKeyframeBoundaries(inputPath, start, end);
     const videoBitrate = await getBitrate(inputPath);
-    const midPath = await copyMidSection(inputPath, keyframeBoundaries[0], keyframeBoundaries[1]);
-    const startCapPath = await renderStartCap(inputPath, start, keyframeBoundaries[0], videoBitrate);
-    const endCapPath = await renderEndCap(inputPath, keyframeBoundaries[1], end, videoBitrate);
+    // @TODO: check the keyframe boundaries; if one of the caps will basically be zero-length, don't bother
+    // check the Time and Tide episode Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU— in /debugging
+    // it causes errors when trying to concat the files
+    /*
+    [2024-08-03T04:44:13.181Z] [debug] 	Invoking ffprobe with args: -v quiet -print_format json -show_format \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress
+[2024-08-03T04:44:13.418Z] [debug] 	Using smart trim for \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress
+[2024-08-03T04:44:13.419Z] [debug] 	Invoking ffprobe with args: -v quiet -select_streams v:0 -skip_frame nokey -show_entries frame=pts_time -read_intervals 53.058%+10,1732.803%+10 -print_format json \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress
+[2024-08-03T04:44:13.748Z] [debug] 	Invoking ffprobe with args: -v quiet -select_streams v:0 -show_entries stream=bit_rate -print_format json \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress
+[2024-08-03T04:44:13.942Z] [info] 	Smart trim: copying middle section for \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress
+[2024-08-03T04:44:13.942Z] [debug] 	Invoking ffmpeg with args: -ss 58.058 -i \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress -ss 0 -t 1679.678 -map 0:0 -c:0 copy -map 0:1 -c:1 copy -video_track_timescale 90000 -ignore_unknown -f mp4 \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress.smarttrim.mid
+[2024-08-03T04:44:14.008Z] [info] 	Smart trim: rendering start cap for \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress
+[2024-08-03T04:44:14.008Z] [debug] 	Invoking ffmpeg with args: -ss 58.058 -i \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress -ss 0 -t 0 -map 0:0 -c:0 libx264 -b:0 4312128 -map 0:1 -c:1 copy -video_track_timescale 90000 -ignore_unknown -f mp4 \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress.smarttrim.start
+[2024-08-03T04:44:14.077Z] [info] 	Smart trim: rendering end cap for \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress
+[2024-08-03T04:44:14.077Z] [debug] 	Invoking ffmpeg with args: -ss 1737.736 -i \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress -ss 0 -t 0.067 -map 0:0 -c:0 libx264 -b:0 4312128 -map 0:1 -c:1 copy -video_track_timescale 90000 -ignore_unknown -f mp4 \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress.smarttrim.end
+[2024-08-03T04:44:14.395Z] [info] 	Rendering \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress.smarttrim.start done in 386 ms
+[2024-08-03T04:44:14.885Z] [info] 	Rendering \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress.smarttrim.end done in 807 ms
+[2024-08-03T04:44:20.712Z] [info] 	Rendering \recordings\3\Time and Tide - 3022 - 051 - SAMURAI WISDOM—TOKUGAWA IEMITSU—.inprogress.smarttrim.mid done in 6769 ms
+[2024-08-03T04:44:20.841Z] [error] 	Non-zero exit code: 1 
+{
+  "name": "ExecError",
+  "stdout": [],
+  "stderr": [
+    "Input #0, concat, from 'pipe:':",
+    "  Duration: N/A, bitrate: N/A",
+    "Stream map '0:0' matches no streams.",
+    "To ignore this, add a trailing '?' to the map."
+  ]
+}
+    */
+    const [ midPath, startCapPath, endCapPath ] = await Promise.all([
+      copyMidSection(inputPath, keyframeBoundaries[0], keyframeBoundaries[1]),
+      renderStartCap(inputPath, start, keyframeBoundaries[0], videoBitrate),
+      renderEndCap(inputPath, keyframeBoundaries[1], end, videoBitrate)
+    ]);
     await concatSmartTrimFiles(temporaryPath, startCapPath, midPath, endCapPath);
     await restoreSmartTrimMetadata(inputPath, temporaryPath, outputPath, hasThumbnail);
     const smartTrimDuration = process.hrtime.bigint() - smartTrimStartTime;
