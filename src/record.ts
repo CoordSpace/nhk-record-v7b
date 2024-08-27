@@ -214,10 +214,19 @@ export const postProcess = async (path: string, duration: number, programme: Pro
     // @TODO: actually check for smart trim artifacts before attempting to delete them
     // @TODO: update metadata JSON file to include smart trim status
     if (config.smartTrim) {
-      await remove(`${path}.smarttrim.start`);
-      await remove(`${path}.smarttrim.mid`);
-      await remove(`${path}.smarttrim.end`);
-      await remove(`${postProcessedPath}.smarttrim.FINAL.mp4`);
+      [
+        `${path}.smarttrim.start`,
+        `${path}.smarttrim.mid`,
+        `${path}.smarttrim.end`,
+        `${postProcessedPath}.smarttrim.FINAL.mp4`
+      ].forEach(async (filepath) => {
+        try {
+          await remove(filepath);
+        } catch (err) {
+          logger.debug(`Failed to delete ${filepath}; this is likely because the file never existed. Raw error follows.`);
+          logger.debug(err)
+        }
+      });
     }
 
     result.trimmed = start > 0;
