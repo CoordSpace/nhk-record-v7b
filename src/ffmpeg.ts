@@ -596,7 +596,6 @@ const renderStartCap = async (
   end: number,
   bitrate: number
 ): Promise<string|null> => {
-  console.log(end, start, end - start, SMARTTRIM_MIN_FRAGMENT_LENGTH_MS);
   if (end - start < SMARTTRIM_MIN_FRAGMENT_LENGTH_MS) {
     logger.debug(`Smart trim: skipping start cap for ${inputPath} (don't render zero-length clips)`)
     return null;
