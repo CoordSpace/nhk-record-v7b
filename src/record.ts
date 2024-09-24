@@ -61,7 +61,7 @@ export const findTrimParameters = async (
     return {};
   }
 
-  const start = last(startBoundaryCandidates).start;
+  const start = last(startBoundaryCandidates).start + (last(startBoundaryCandidates).end - last(startBoundaryCandidates).start) / 4;
   logger.info(`Detected start at ${start} ms`);
 
   const endSearchTime = Math.max(
