@@ -129,6 +129,7 @@ const NEWS_BANNER_STRATEGY = {
 const SMARTTRIM_FILE_SUFFIX_START = '.smarttrim.start';
 const SMARTTRIM_FILE_SUFFIX_MID = '.smarttrim.mid';
 const SMARTTRIM_FILE_SUFFIX_END = '.smarttrim.end';
+const SMARTTRIM_MIN_FRAGMENT_LENGTH_MS = 100;
 
 const getFfprobeArguments = (path: string): Array<string> =>
   [['-v', 'quiet'], ['-print_format', 'json'], '-show_format', path].flat();
@@ -311,6 +312,7 @@ export const detectPotentialBoundaries = async (
 
   const silences = findSilences(outputLines);
   logger.debug(`Found ${silences.length} silences`, silences);
+  logger.debug(`outputLines:`, outputLines);
 
   if (silences.length === 0) {
     logger.info('No silences of sufficient length, terminating boundary search');
@@ -594,7 +596,8 @@ const renderStartCap = async (
   end: number,
   bitrate: number
 ): Promise<string|null> => {
-  if (end - start == 0) {
+  console.log(end, start, end - start, SMARTTRIM_MIN_FRAGMENT_LENGTH_MS);
+  if (end - start < SMARTTRIM_MIN_FRAGMENT_LENGTH_MS) {
     logger.debug(`Smart trim: skipping start cap for ${inputPath} (don't render zero-length clips)`)
     return null;
   }
@@ -610,7 +613,7 @@ const renderEndCap = async (
   end: number,
   bitrate: number
 ): Promise<string|null> => {
-  if (end - start == 0) {
+  if (end - start < SMARTTRIM_MIN_FRAGMENT_LENGTH_MS) {
     logger.debug(`Smart trim: skipping end cap for ${inputPath} (don't render zero-length clips)`)
     return null;
   }
