@@ -61,7 +61,7 @@ export const findTrimParameters = async (
     return {};
   }
 
-  const start = last(startBoundaryCandidates).start + (last(startBoundaryCandidates).end - last(startBoundaryCandidates).start) / 4;
+  const start = last(startBoundaryCandidates).start + ((last(startBoundaryCandidates).end - last(startBoundaryCandidates).start) / 4);
   logger.info(`Detected start at ${start} ms`);
 
   const endSearchTime = Math.max(
@@ -103,11 +103,12 @@ export const findTrimParameters = async (
     filteredCandidates
   );
 
-  const end = head(filteredCandidates)?.start;
-  if (!end) {
+  if (!head(filteredCandidates)?.start) {
     logger.info('No end boundary found');
     return { start };
   }
+
+  const end = head(filteredCandidates).start + ((head(filteredCandidates).end - head(filteredCandidates).start) / 4);
 
   logger.info(`Detected end at ${end} ms`);
   return { start, end };
