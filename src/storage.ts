@@ -32,10 +32,10 @@ const getSuffix = (suffixType: FileType, programme: Programme): string =>
       `.${sanitizeFilename(programme.startDate.toISOString())}.failed`,
     [FileType.IN_PROGRESS]: () => '.inprogress',
     [FileType.METADATA]: () => '.metadata',
+    [FileType.POST_PROCESSED]: () => '.postprocessed',
     [FileType.RAW]: () => '.raw',
     [FileType.SUCCESSFUL]: () => '.mp4',
-    [FileType.THUMBNAIL]: () => '.jpg',
-    [FileType.POST_PROCESSED]: () => '.postprocessed'
+    [FileType.THUMBNAIL]: () => '.jpg'
   }[suffixType](programme));
 
 export const makeSaveDirectory = async (): Promise<string> => {
